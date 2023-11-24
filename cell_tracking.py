@@ -15,7 +15,7 @@ IMG_HEIGHT = 2048
 
 # %%
 # read csv
-csv_path = "tabular-data/hackathon_dataset_S2cells.csv"
+csv_path = "tabular-data/hackathon_dataset_S2cells_231124.csv"
 df = pd.read_csv(csv_path)
 df.head()
 
@@ -126,4 +126,6 @@ view(create_image(text_xy_coords, point_size=10), scale=0.5, text="hello")
 # %%
 
 view(create_image(get_xy_coords(filter_frame(df, "N16", visiting_point=1, frame=1)), point_size=10), scale=0.25)
+
+
 # %%
