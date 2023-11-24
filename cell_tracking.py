@@ -6,6 +6,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import os
 import platform
+from scipy.spatial import KDTree
 
 
 # %%
@@ -128,4 +129,156 @@ view(create_image(text_xy_coords, point_size=10), scale=0.5, text="hello")
 view(create_image(get_xy_coords(filter_frame(df, "N16", visiting_point=1, frame=1)), point_size=10), scale=0.25)
 
 
+# %%
+# extract coordinates from two frames
+frame_0_points = get_xy_coords(filter_frame(df, "N16", visiting_point=1, frame=2))
+frame_0_points = frame_0_points.astype(np.float32)
+frame_1_points = get_xy_coords(filter_frame(df, "N16", visiting_point=1, frame=3))
+frame_1_points = frame_1_points.astype(np.float32)
+
+# generate images
+# previous frame
+frame_0 = create_image(frame_0_points, point_size=10)
+# convert to grayscale
+frame_0 = cv2.cvtColor(frame_0, cv2.COLOR_BGR2GRAY)
+
+# current frame
+frame_1 = create_image(frame_1_points, point_size=10)
+# convert to grayscale
+frame_1 = cv2.cvtColor(frame_1, cv2.COLOR_BGR2GRAY)
+
+# Parameters for lucas kanade optical flow 
+# lk_params = dict( winSize = (1000, 1000), 
+#                   maxLevel = 4, 
+#                   criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 
+#                               1000, 0.01))
+lk_params = dict( winSize = (100, 100), 
+                  maxLevel = 4, 
+                  criteria = (cv2.TERM_CRITERIA_COUNT, 20, 0.03))
+
+# %%
+
+# calculate optical flow 
+p1, st, err = cv2.calcOpticalFlowPyrLK(frame_0, frame_1, frame_0_points, None, **lk_params)
+
+
+# %%
+input_first_point = frame_0_points[15]
+output_first_point = p1[15]
+input_first_point, output_first_point, frame_1_points[1]
+
+# %%
+# fit a kd-tree to the input points and find the closest point to the output point
+tree = KDTree(frame_0_points)
+distance, index = tree.query(frame_1_points, p=2)
+distance, index
+
+# %%
+# Select good points 
+good_new = p1[st[:, 0] == 1] 
+good_old = frame_0_points
+
+# Create a mask image for drawing purposes 
+mask = np.zeros(frame_0.shape + (3, )).astype(np.uint8) 
+mask.shape
+
+# reorder frame_1_points based on kdtree distance
+frame_1_points_reordered = frame_1_points[index]
+
+# draw the tracks 
+for i, (new, old) in enumerate(zip(good_new,  
+                                    good_old)): 
+    a, b = new.ravel() 
+    c, d = old.ravel() 
+    a, b, c, d = int(a), int(b), int(c), int(d)
+    mask = cv2.line(mask, (a, b), (c, d), (255, 0, 0), 20) 
+
+frame_0_bgr = cv2.cvtColor(frame_0, cv2.COLOR_GRAY2BGR)
+frame_1_bgr = cv2.cvtColor(frame_1, cv2.COLOR_GRAY2BGR)
+img = cv2.add(frame_1_bgr, mask) 
+
+# view(img, scale=0.25)
+# %%
+# save frame 0 and frame 1
+cv2.imwrite("frame_0.png", frame_0)
+cv2.imwrite("frame_1.png", frame_1)
+cv2.imwrite("frame_1_tracking.png", img)
+
+
+# %%
+# kdtree
+frames = [2, 3, 4, 5, 6, 7, 8, 9, 10]
+
+# Create a mask image for drawing purposes 
+mask = np.zeros((IMG_HEIGHT, IMG_WIDTH, 3)).astype(np.uint8)
+
+# global var for persistent ids
+ids2xy = {}
+
+
+for frame_id, frame in enumerate(frames):
+    print(frame_id, frame)
+    # extract coordinates from two frames
+    frame_0_points = get_xy_coords(filter_frame(df, "N16", visiting_point=1, frame=frame))
+    # frame_0_points = frame_0_points.astype(np.float32)
+    frame_1_points = get_xy_coords(filter_frame(df, "N16", visiting_point=1, frame=frame+1))
+    # frame_1_points = frame_1_points.astype(np.float32)
+
+    # generate images
+    # previous frame
+    frame_0 = create_image(frame_0_points, point_size=15)
+    # current frame
+    frame_1 = create_image(frame_1_points, point_size=15)
+
+    # initialize persistent ids upon first frame
+    if frame_id == 0:
+        for id, xy in enumerate(frame_0_points):
+            ids2xy[id] = xy
+
+    # fit a kd-tree to the input points and find the closest point to the output point
+    tree = KDTree(frame_0_points)
+    # distance, index = tree.query(frame_1_points, p=2, distance_upper_bound=10000)
+    distance, index = tree.query(frame_1_points, p=2, distance_upper_bound=50)
+
+    # Create a mask image for writing label numbers 
+    labels_mask = np.zeros((IMG_HEIGHT, IMG_WIDTH, 3)).astype(np.uint8)
+
+    for index_id, prev_index in enumerate(index):
+        # if it was outside the distance upper bound, skip
+        if prev_index == len(frame_0_points):
+            continue
+        
+        # if you get a valid point, take the xy for prev_index
+        # and find the identical xy in ids2xy
+        # then draw a line from that point to the current point
+        prev_xy = frame_0_points[prev_index]
+        prev_id = None
+        for id, xy in ids2xy.items():
+            if np.array_equal(xy, prev_xy):
+                prev_id = id
+                # update ids2xy at label
+                ids2xy[id] = frame_1_points[index_id]
+                # write label number at xy on labels_mask
+                new_xy = frame_1_points[index_id]
+                labels_mask = cv2.putText(labels_mask, str(id), (int(new_xy[0])+20, int(new_xy[1])+10), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2, cv2.LINE_AA)
+                break
+
+        new_point = frame_1_points[index_id]
+        a, b = new_point
+        old_point = frame_0_points[prev_index]
+        c, d = old_point
+        a, b, c, d = int(a), int(b), int(c), int(d)
+        mask = cv2.line(mask, (a, b), (c, d), (0, 0, 255), 15)
+
+
+    img = cv2.add(frame_1, mask)
+    # add labels_mask to img
+    img = cv2.add(img, labels_mask)
+
+    # save images
+    if frame_id == 0:
+        cv2.imwrite(f"frame_{frame}.png", frame_0)
+        cv2.imwrite(f"frame_{frame+1}_tracking.png", img)
+    else:
+        cv2.imwrite(f"frame_{frame+1}_tracking.png", img)
 # %%
