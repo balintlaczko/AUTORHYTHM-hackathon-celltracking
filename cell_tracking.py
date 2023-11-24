@@ -6,6 +6,12 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import os
 
+
+# %%
+# constants
+IMG_WIDTH = 2048
+IMG_HEIGHT = 2048
+
 # %%
 # read csv
 csv_path = "tabular-data/hackathon_dataset_S2cells.csv"
@@ -41,6 +47,21 @@ def filter_frame(
 # %%
 # test filter_frame
 
-df_filtered = filter_frame(df, "N16", 1, 1)
+df_filtered = filter_frame(df, "N16", visiting_point=1, frame=1)
 df_filtered.head()
+
+# %%
+# helper func to get an array of xy coords from a df
+
+def get_xy_coords(df: pd.DataFrame) -> np.ndarray:
+    xy_coords = df[["Cells_Location_Center_X", "Cells_Location_Center_Y"]].to_numpy()
+    return xy_coords
+
+# %%
+# test get_xy_coords
+
+xy_coords = get_xy_coords(df_filtered)
+xy_coords.shape # (270, 2)
+
+
 # %%
