@@ -2,3 +2,7 @@
 tabular-data.zip
 tabular-data/
 .DS_Store
+.Rproj.user
+*.png
+*.csv
+*.Rproj
