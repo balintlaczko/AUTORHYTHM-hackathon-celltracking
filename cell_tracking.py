@@ -369,7 +369,7 @@ def render_tracking_visualization(
         if frame_id == 0:
             cv2.imwrite(os.path.join(destination, f"frame_{frame}.png"), frame_0)
         # and always save the tracking for the next frame
-        cv2.imwrite(os.path.join(destination, f"frame_{frame+1}_tracking.png"), img)
+        cv2.imwrite(os.path.join(destination, f"frame_{frame+1}.png"), img)
 
 # %%
 # generate tracking visualizations for all wells and visiting points
