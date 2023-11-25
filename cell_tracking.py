@@ -219,9 +219,9 @@ ids2xy = {}
 for frame_id, frame in enumerate(frames):
     print(frame_id, frame)
     # extract coordinates from two frames
-    frame_0_points = get_xy_coords(filter_frame(df, "N16", visiting_point=1, frame=frame))
+    frame_0_points = get_xy_coords(filter_frame(df, "N15", visiting_point=1, frame=frame))
     # frame_0_points = frame_0_points.astype(np.float32)
-    frame_1_points = get_xy_coords(filter_frame(df, "N16", visiting_point=1, frame=frame+1))
+    frame_1_points = get_xy_coords(filter_frame(df, "N15", visiting_point=1, frame=frame+1))
     # frame_1_points = frame_1_points.astype(np.float32)
 
     # generate images
@@ -281,4 +281,118 @@ for frame_id, frame in enumerate(frames):
         cv2.imwrite(f"frame_{frame+1}_tracking.png", img)
     else:
         cv2.imwrite(f"frame_{frame+1}_tracking.png", img)
+
+# %%
+# collect into function
+
+def render_tracking_visualization(
+        df: pd.DataFrame,
+        well_id: str,
+        visiting_point: int,
+        frames: list,
+        distance_upper_bound: int = 50,
+        point_size: int = 15,
+        path_color: tuple = (0, 0, 255),
+        label_color: tuple = (255, 0, 0),
+        destination: str = "."
+        ) -> None:
+    # Create a mask image for drawing purposes 
+    mask = np.zeros((IMG_HEIGHT, IMG_WIDTH, 3)).astype(np.uint8)
+
+    # global var for persistent ids
+    ids2xy = {}
+
+    # create destination folder if it doesn't exist
+    os.makedirs(destination, exist_ok=True)
+
+
+    for frame_id, frame in enumerate(frames):
+        # extract coordinates from two frames
+        frame_0_points = get_xy_coords(filter_frame(df, well_id=well_id, visiting_point=visiting_point, frame=frame))
+        # frame_0_points = frame_0_points.astype(np.float32)
+        frame_1_points = get_xy_coords(filter_frame(df, well_id=well_id, visiting_point=visiting_point, frame=frame+1))
+        # frame_1_points = frame_1_points.astype(np.float32)
+
+        # generate images
+        # previous frame
+        frame_0 = create_image(frame_0_points, point_size=point_size)
+        # current frame
+        frame_1 = create_image(frame_1_points, point_size=point_size)
+
+        # initialize persistent ids upon first frame
+        if frame_id == 0:
+            for id, xy in enumerate(frame_0_points):
+                ids2xy[id] = xy
+
+        # fit a kd-tree to the input points and find the closest point to the output point
+        tree = KDTree(frame_0_points)
+        distance, index = tree.query(frame_1_points, p=2, distance_upper_bound=distance_upper_bound)
+
+        # Create a mask image for writing label numbers 
+        labels_mask = np.zeros((IMG_HEIGHT, IMG_WIDTH, 3)).astype(np.uint8)
+
+        for index_id, prev_index in enumerate(index):
+            # if it was outside the distance upper bound, skip
+            if prev_index == len(frame_0_points):
+                continue
+            
+            # if you get a valid point, take the xy for prev_index
+            # and find the identical xy in ids2xy
+            # then draw a line from that point to the current point
+            prev_xy = frame_0_points[prev_index]
+            prev_id = None
+            for id, xy in ids2xy.items():
+                if np.array_equal(xy, prev_xy):
+                    prev_id = id
+                    # update ids2xy at label
+                    ids2xy[id] = frame_1_points[index_id]
+                    # write label number at xy on labels_mask
+                    new_xy = frame_1_points[index_id]
+                    labels_mask = cv2.putText(labels_mask, str(id), (int(new_xy[0])+20, int(new_xy[1])+10), cv2.FONT_HERSHEY_SIMPLEX, 1, label_color, 2, cv2.LINE_AA)
+                    break
+
+            # unpack new point
+            a, b = frame_1_points[index_id]
+            # unpack old point
+            c, d = frame_0_points[prev_index]
+            # round and convert to int
+            a, b, c, d = int(np.round(a)), int(np.round(b)), int(np.round(c)), int(np.round(d))
+            mask = cv2.line(mask, (a, b), (c, d), path_color, 15)
+
+        # add mask to frame_1
+        img = cv2.add(frame_1, mask)
+        # add labels_mask to img
+        img = cv2.add(img, labels_mask)
+
+        # save images
+        # upon first frame, save frame_0 as well
+        if frame_id == 0:
+            cv2.imwrite(os.path.join(destination, f"frame_{frame}.png"), frame_0)
+        # and always save the tracking for the next frame
+        cv2.imwrite(os.path.join(destination, f"frame_{frame+1}_tracking.png"), img)
+
+# %%
+# generate tracking visualizations for all wells and visiting points
+
+# get all unique well ids
+well_ids = df["Image_Metadata_Well"].unique()
+
+# root folder for tracking visualizations
+root = "tracking_visualizations"
+
+for well_id in well_ids:
+    print(well_id)
+    # get all unique visiting points for this well
+    visiting_points = df[df["Image_Metadata_Well"] == well_id]["Image_Metadata_Multipoint"].unique()
+    for visiting_point in visiting_points:
+        print(visiting_point)
+        # get all unique frames for this well and visiting point
+        frames = df[(df["Image_Metadata_Well"] == well_id) & (df["Image_Metadata_Multipoint"] == visiting_point)]["timepoint"].unique()
+        # sort frames
+        frames = sorted(frames)
+        # remove first (bst) and last frame
+        frames = frames[1:-1]
+        print(frames)
+        # generate tracking visualizations
+        render_tracking_visualization(df, well_id, visiting_point, frames, destination=os.path.join(root, well_id, str(visiting_point)))
 # %%
